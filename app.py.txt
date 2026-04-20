@@ -1,0 +1,141 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# TITLE
+st.title("🍭 Nassau Candy Factory Optimization Dashboard")
+
+st.markdown("### Optimize Factory Allocation & Improve Shipping Efficiency")
+
+# -----------------------------
+# LOAD DATA (use your cleaned df)
+# -----------------------------
+df = pd.read_csv("cleaned_data.csv")
+
+# -----------------------------
+# USER INPUTS
+# -----------------------------
+st.sidebar.header("🔧 User Inputs")
+
+product = st.sidebar.selectbox("Select Product", df["Product Name"].unique())
+region = st.sidebar.selectbox("Select Region", df["Region"].unique())
+ship_mode = st.sidebar.selectbox("Select Ship Mode", df["Ship Mode"].unique())
+
+# -----------------------------
+# FACTORY COORDINATES
+# -----------------------------
+factory_coords = {
+    "Lot's O' Nuts": (32.881893, -111.768036),
+    "Wicked Choccy's": (32.076176, -81.088371),
+    "Sugar Shack": (48.11914, -96.18115),
+    "Secret Factory": (41.446333, -90.565487),
+    "The Other Factory": (35.1175, -89.971107)
+}
+
+region_coords = {
+    "Pacific": (36.7783, -119.4179),
+    "Atlantic": (40.7128, -74.0060),
+    "Gulf": (29.7604, -95.3698),
+    "Interior": (41.8781, -87.6298)
+}
+
+# -----------------------------
+# DISTANCE FUNCTION
+# -----------------------------
+from math import radians, sin, cos, sqrt, atan2
+
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
+
+# -----------------------------
+# LOAD MODEL + ENCODERS
+# -----------------------------
+import joblib
+
+model = joblib.load("model.pkl")
+le_ship = joblib.load("le_ship.pkl")
+le_region = joblib.load("le_region.pkl")
+le_product = joblib.load("le_product.pkl")
+le_factory = joblib.load("le_factory.pkl")
+
+# -----------------------------
+# SIMULATION FUNCTION
+# -----------------------------
+def simulate_product(product, region, ship_mode):
+    
+    results = []
+    
+    for factory in factory_coords.keys():
+        
+        distance = haversine(
+            factory_coords[factory][0],
+            factory_coords[factory][1],
+            region_coords[region][0],
+            region_coords[region][1]
+        )
+        
+        temp = pd.DataFrame({
+            "Ship Mode Enc": [le_ship.transform([ship_mode])[0]],
+            "Region Enc": [le_region.transform([region])[0]],
+            "Product Enc": [le_product.transform([product])[0]],
+            "Factory Enc": [le_factory.transform([factory])[0]],
+            "Distance": [distance],
+            "Units": [df["Units"].mean()],
+            "Sales": [df["Sales"].mean()],
+            "Cost": [df["Cost"].mean()]
+        })
+        
+        pred = model.predict(temp)[0]
+        
+        results.append((factory, pred))
+    
+    return pd.DataFrame(results, columns=["Factory", "Predicted Lead Time"])
+
+# -----------------------------
+# RUN SIMULATION
+# -----------------------------
+sim_df = simulate_product(product, region, ship_mode)
+
+# -----------------------------
+# DISPLAY RESULTS
+# -----------------------------
+st.subheader("📊 Factory Performance Comparison")
+st.dataframe(sim_df)
+
+# -----------------------------
+# BEST FACTORY
+# -----------------------------
+best = sim_df.loc[sim_df["Predicted Lead Time"].idxmin()]
+
+st.success(f"🏆 Recommended Factory: {best['Factory']}")
+
+# -----------------------------
+# TOP 3
+# -----------------------------
+st.subheader("🥇 Top 3 Factory Recommendations")
+
+top3 = sim_df.sort_values("Predicted Lead Time").head(3)
+st.dataframe(top3)
+
+# -----------------------------
+# IMPROVEMENT
+# -----------------------------
+current_time = df[df["Product Name"] == product]["Lead Time Scaled"].mean()
+new_time = sim_df["Predicted Lead Time"].min()
+
+improvement = ((current_time - new_time) / current_time) * 100
+
+st.metric("📉 Lead Time Improvement (%)", f"{improvement:.2f}%")
+
+# -----------------------------
+# PROFIT IMPACT
+# -----------------------------
+current_profit = df[df["Product Name"] == product]["Gross Profit"].mean()
+new_profit = current_profit * 1.05
+
+st.metric("💰 Estimated Profit Increase", f"{new_profit - current_profit:.2f}")
