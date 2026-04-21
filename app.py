@@ -10,7 +10,7 @@ st.markdown("### Optimize Factory Allocation & Improve Shipping Efficiency")
 # -----------------------------
 # LOAD DATA (use your cleaned df)
 # -----------------------------
-df = pd.read_csv("cleaned_data.csv")
+df = pd.read_csv("Nassau Candy Distributor.csv")
 
 # -----------------------------
 # USER INPUTS
